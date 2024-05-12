@@ -1,0 +1,3 @@
+[submodule "chipmunk2d"]
+	path = chipmunk2d
+	url = https://github.com/szymor/Chipmunk2D.git
