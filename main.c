@@ -73,8 +73,6 @@ void cbShapeFree(cpBody *body, cpShape *shape, void *data);
 void cbScrap(cpBody *body, cpShape *shape, void *data);
 
 void cbOnPlayerEnemyTouch(cpArbiter *arb, cpSpace *space, cpDataPointer data);
-void cbOnPlayerScrapTouch(cpArbiter *arb, cpSpace *space, cpDataPointer data);
-void cbTieScrap(cpSpace *space, void *obj, void *data);
 
 int main(int argc, char *argv[])
 {
@@ -88,8 +86,12 @@ int main(int argc, char *argv[])
 	player = world_spawn_body(0, 0, MT_TANK, TEAM_PLAYER);
 	struct Metadata *md = cpBodyGetUserData(player);
 
-	world_spawn_body(100, 100, MT_TANK, TEAM_ENEMY);
-	//world_spawn_body(100, -100, MT_TANK, TEAM_ALLY);
+	for (int i = 0; i < 10; ++i)
+	{
+		world_spawn_body(100 + i * 20, 100, MT_TANK, TEAM_ENEMY);
+		//world_spawn_body(i * 20, -300, MT_TANK, TEAM_ENEMY);
+		//world_spawn_body(100 + i * 20, -100, MT_TANK, TEAM_ALLY);
+	}
 
 	// loop
 	int quit = 0;
@@ -222,8 +224,6 @@ void world_init(void)
 	cpCollisionHandler *ch = NULL;
 	ch = cpSpaceAddCollisionHandler(world_space, TEAM_PLAYER, TEAM_ENEMY);
 	ch->postSolveFunc = cbOnPlayerEnemyTouch;
-	ch = cpSpaceAddCollisionHandler(world_space, TEAM_PLAYER, TEAM_SCRAP);
-	ch->postSolveFunc = cbOnPlayerScrapTouch;
 }
 
 void world_free(void)
@@ -259,7 +259,7 @@ cpBody* world_spawn_body(cpFloat x, cpFloat y, enum MetaType mt, enum Team team)
 	metadata->team = team;
 	metadata->control_flags = 0;
 	metadata->shoot_timer = 0;
-	metadata->scrap_timer = 1000;//30000;
+	metadata->scrap_timer = 300000;
 
 	cpShape *shape = cpSpaceAddShape(world_space, cpCircleShapeNew(body, radius, cpvzero));
 	cpShapeSetFriction(shape, 0.7);
@@ -321,13 +321,8 @@ void world_draw(cpVect *cc)
 void tank_shoot(cpBody *body)
 {
 	cpVect pos = cpBodyGetPosition(body);
-	cpVect rot = cpBodyGetRotation(body);
+	cpVect rot = cpvperp(cpBodyGetRotation(body));
 	struct Metadata *md = cpBodyGetUserData(body);
-
-	// rotate rotation vector
-	cpFloat tmp = rot.y;
-	rot.y = rot.x;
-	rot.x = -tmp;
 
 	pos.x += 15 * rot.x;
 	pos.y += 15 * rot.y;
@@ -342,6 +337,22 @@ void tank_shoot(cpBody *body)
 void cbTankShoot(cpSpace *space, void *obj, void *data)
 {
 	tank_shoot((cpBody *)obj);
+}
+
+void cbSumGradients(cpShape *shape, cpVect point, cpFloat distance, cpVect gradient, void *data)
+{
+	// do not count self
+	if (distance < 0.0f)
+		return;
+	cpVect *vec = data;
+
+	// boid separation
+	gradient = cpvmult(gradient, 300.0f / (distance * distance));
+	*vec = cpvadd(*vec, gradient);
+
+	// boid alignment
+	cpBody *boid = cpShapeGetBody(shape);
+	*vec = cpvadd(*vec, cpvperp(cpBodyGetRotation(boid)));
 }
 
 void cbBodyDraw(cpBody *body, void *data)
@@ -362,7 +373,17 @@ void cbBodyDraw(cpBody *body, void *data)
 		cpFloat target_angle = atan2(target.y, target.x) - angle;
 		target_angle = atan2(sin(target_angle), cos(target_angle));
 
-		md->control_flags = CF_FORWARD;
+		cpVect go_vec = cpvzero;
+		cpSpacePointQuery(world_space, pos, 100.0f, cpShapeFilterNew(CP_NO_GROUP, CP_ALL_CATEGORIES, TEAM_ENEMY),
+			cbSumGradients, &go_vec);
+		go_vec = cpvadd(cpvmult(target, 25.0f / cpvlengthsq(target)), cpvnormalize(go_vec));
+		target_angle = atan2(go_vec.y, go_vec.x) - angle;
+		target_angle = atan2(sin(target_angle), cos(target_angle));
+
+		md->control_flags = 0;
+		//if (cpvlengthsq(target) > 10000.0)
+			md->control_flags = CF_FORWARD;
+
 		if (target_angle > 0)
 			md->control_flags |= CF_TURN_RIGHT;
 		else
@@ -492,10 +513,8 @@ void cbShapeDraw(cpBody *body, cpShape *shape, void *data)
 
 	if (md->type == MT_TANK)
 	{
-		cpVect lend = cpBodyGetRotation(body);
-		lend.x *= 1.5f * r; lend.x += pos.y;
-		lend.y *= -1.5f * r; lend.y += pos.x;
-		lineColor(screen, x, y, lend.y, lend.x, 0x000000ff);
+		cpVect lend = cpvadd(cpvmult(cpvperp(cpBodyGetRotation(body)), 1.5f * r), pos);
+		lineColor(screen, x, y, lend.x, lend.y, 0x000000ff);
 	}
 }
 
@@ -534,22 +553,4 @@ void cbOnPlayerEnemyTouch(cpArbiter *arb, cpSpace *space, cpDataPointer data)
 		struct Metadata *md = cpBodyGetUserData(player);
 		md->control_flags = 0;
 	}
-}
-
-void cbOnPlayerScrapTouch(cpArbiter *arb, cpSpace *space, cpDataPointer data)
-{
-	cpBody *a, *b;
-	cpArbiterGetBodies(arb, &a, &b);
-	cpSpaceAddPostStepCallback(world_space, cbTieScrap, a, b);
-}
-
-void cbTieScrap(cpSpace *space, void *obj, void *data)
-{
-	cpBody *a = obj;
-	cpBody *b = data;
-	cpConstraint *slide = cpSpaceAddConstraint(space,
-		cpSlideJointNew(a, b, cpvzero, cpvzero, 17, 17));
-	// to do - it is called each time collision occurs
-	// check grip state, grip mode, etc.
-	// draw constraints, execute actions after predefined timeout
 }
