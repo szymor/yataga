@@ -424,16 +424,16 @@ void cbBodyDraw(cpBody *body, void *data)
 		cpFloat speed_unit = 100.0f;
 		if (md->team == TEAM_ENEMY || md->team == TEAM_ALLY)
 		{
-			speed_unit = 120.0f;
+			speed_unit = 150.0f;
 		}
 
 		if (md->control_flags & CF_FORWARD)
 		{
-			cpBodyApplyForceAtLocalPoint(body, cpv(0, 5 * speed_unit * mass), cpvzero);
+			cpBodyApplyForceAtLocalPoint(body, cpv(0, 5.0f * speed_unit * mass), cpvzero);
 		}
 		if (md->control_flags & CF_REVERSE)
 		{
-			cpBodyApplyForceAtLocalPoint(body, cpv(0, -4 * speed_unit * mass), cpvzero);
+			cpBodyApplyForceAtLocalPoint(body, cpv(0, -4.0f * speed_unit * mass), cpvzero);
 		}
 		if (md->control_flags & CF_TURN_LEFT)
 		{
