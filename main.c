@@ -86,9 +86,13 @@ int main(int argc, char *argv[])
 	player = world_spawn_body(0, 0, MT_TANK, TEAM_PLAYER);
 	struct Metadata *md = cpBodyGetUserData(player);
 
-	for (int i = 0; i < 10; ++i)
+	world_spawn_body(100, 100, MT_TANK, TEAM_ALLY);
+	world_spawn_body(100, -100, MT_TANK, TEAM_ALLY);
+	world_spawn_body(-100, -100, MT_TANK, TEAM_ALLY);
+	world_spawn_body(-100, 100, MT_TANK, TEAM_ALLY);
+	for (int i = 0; i < 4; ++i)
 	{
-		world_spawn_body(100 + i * 20, 100, MT_TANK, TEAM_ENEMY);
+		world_spawn_body(-100 + i * 20, 200, MT_TANK, TEAM_ENEMY);
 		//world_spawn_body(i * 20, -300, MT_TANK, TEAM_ENEMY);
 		//world_spawn_body(100 + i * 20, -100, MT_TANK, TEAM_ALLY);
 	}
@@ -259,7 +263,7 @@ cpBody* world_spawn_body(cpFloat x, cpFloat y, enum MetaType mt, enum Team team)
 	metadata->team = team;
 	metadata->control_flags = 0;
 	metadata->shoot_timer = 0;
-	metadata->scrap_timer = 300000;
+	metadata->scrap_timer = 30000;
 
 	cpShape *shape = cpSpaceAddShape(world_space, cpCircleShapeNew(body, radius, cpvzero));
 	cpShapeSetFriction(shape, 0.7);
@@ -345,13 +349,18 @@ void cbSumGradients(cpShape *shape, cpVect point, cpFloat distance, cpVect gradi
 	if (distance < 0.0f)
 		return;
 	cpVect *vec = data;
+	cpBody *boid = cpShapeGetBody(shape);
+
+	// ignore stranded
+	struct Metadata *md = cpBodyGetUserData(boid);
+	if (!(md->control_flags & CF_FORWARD))
+		return;
 
 	// boid separation
 	gradient = cpvmult(gradient, 300.0f / (distance * distance));
 	*vec = cpvadd(*vec, gradient);
 
 	// boid alignment
-	cpBody *boid = cpShapeGetBody(shape);
 	*vec = cpvadd(*vec, cpvperp(cpBodyGetRotation(boid)));
 }
 
@@ -370,18 +379,17 @@ void cbBodyDraw(cpBody *body, void *data)
 		cpVect pos = cpBodyGetPosition(body);
 		cpFloat angle = cpBodyGetAngle(body) + M_PI_2;
 		target = cpvsub(target, pos);
-		cpFloat target_angle = atan2(target.y, target.x) - angle;
-		target_angle = atan2(sin(target_angle), cos(target_angle));
 
 		cpVect go_vec = cpvzero;
-		cpSpacePointQuery(world_space, pos, 100.0f, cpShapeFilterNew(CP_NO_GROUP, CP_ALL_CATEGORIES, TEAM_ENEMY),
+		cpSpacePointQuery(world_space, pos, 100.0f,
+			cpShapeFilterNew(CP_NO_GROUP, TEAM_ENEMY, TEAM_ENEMY),
 			cbSumGradients, &go_vec);
 		go_vec = cpvadd(cpvmult(target, 25.0f / cpvlengthsq(target)), cpvnormalize(go_vec));
-		target_angle = atan2(go_vec.y, go_vec.x) - angle;
+		cpFloat target_angle = atan2(go_vec.y, go_vec.x) - angle;
 		target_angle = atan2(sin(target_angle), cos(target_angle));
 
 		md->control_flags = 0;
-		//if (cpvlengthsq(target) > 10000.0)
+		if (fabsf(target_angle) < M_PI_2)
 			md->control_flags = CF_FORWARD;
 
 		if (target_angle > 0)
@@ -393,13 +401,13 @@ void cbBodyDraw(cpBody *body, void *data)
 	if (md && md->type == MT_TANK && md->team == TEAM_ALLY)
 	{
 		cpVect pos = cpBodyGetPosition(body);
-		cpShape *target_shape = cpSpacePointQueryNearest(world_space, pos, 1000.0,
+		cpShape *target_shape = cpSpacePointQueryNearest(world_space, pos, 1000.0f,
 			cpShapeFilterNew(CP_NO_GROUP, TEAM_ALLY, TEAM_ENEMY), NULL);
 
 		if (target_shape)
 		{
+			// get in the way of an enemy
 			cpBody *target_body = cpShapeGetBody(target_shape);
-			
 			cpVect target = cpBodyGetPosition(target_body);
 			cpFloat angle = cpBodyGetAngle(body) + M_PI_2;
 			target = cpvsub(target, pos);
@@ -414,7 +422,20 @@ void cbBodyDraw(cpBody *body, void *data)
 		}
 		else
 		{
+			// follow the player
+			cpVect target = cpBodyGetPosition(player);
+			cpFloat angle = cpBodyGetAngle(body) + M_PI_2;
+			target = cpvsub(target, pos);
+			cpFloat target_angle = atan2(target.y, target.x) - angle;
+			target_angle = atan2(sin(target_angle), cos(target_angle));
+
 			md->control_flags = 0;
+			if (cpvlengthsq(target) > 4900.0f)
+				md->control_flags = CF_FORWARD;
+			if (target_angle > 0)
+				md->control_flags |= CF_TURN_RIGHT;
+			else
+				md->control_flags |= CF_TURN_LEFT;
 		}
 	}
 
