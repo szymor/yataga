@@ -25,8 +25,7 @@ enum ControlFlags
 	CF_REVERSE = 2,
 	CF_TURN_LEFT = 4,
 	CF_TURN_RIGHT = 8,
-	CF_SHOOT = 16,
-	CF_GRIP = 32
+	CF_SHOOT = 16
 };
 
 enum Team
@@ -73,6 +72,7 @@ void cbShapeFree(cpBody *body, cpShape *shape, void *data);
 void cbScrap(cpBody *body, cpShape *shape, void *data);
 
 void cbOnPlayerEnemyTouch(cpArbiter *arb, cpSpace *space, cpDataPointer data);
+void cbOnBulletScrapTouch(cpArbiter *arb, cpSpace *space, cpDataPointer data);
 
 int main(int argc, char *argv[])
 {
@@ -86,14 +86,14 @@ int main(int argc, char *argv[])
 	player = world_spawn_body(0, 0, MT_TANK, TEAM_PLAYER);
 	struct Metadata *md = cpBodyGetUserData(player);
 
-	world_spawn_body(100, 100, MT_TANK, TEAM_ALLY);
-	world_spawn_body(100, -100, MT_TANK, TEAM_ALLY);
-	world_spawn_body(-100, -100, MT_TANK, TEAM_ALLY);
-	world_spawn_body(-100, 100, MT_TANK, TEAM_ALLY);
-	for (int i = 0; i < 4; ++i)
+	//world_spawn_body(100, 100, MT_TANK, TEAM_ALLY);
+	//world_spawn_body(100, -100, MT_TANK, TEAM_ALLY);
+	//world_spawn_body(-100, -100, MT_TANK, TEAM_ALLY);
+	//world_spawn_body(-100, 100, MT_TANK, TEAM_ALLY);
+	for (int i = 0; i < 1; ++i)
 	{
 		world_spawn_body(-100 + i * 20, 200, MT_TANK, TEAM_ENEMY);
-		//world_spawn_body(i * 20, -300, MT_TANK, TEAM_ENEMY);
+		//world_spawn_body(-100 + i * 20, 100, MT_TANK, TEAM_ALLY);
 		//world_spawn_body(100 + i * 20, -100, MT_TANK, TEAM_ALLY);
 	}
 
@@ -133,10 +133,6 @@ int main(int argc, char *argv[])
 								md->shoot_timer = 0;
 							}
 							break;
-						case SDLK_SPACE:
-							if (0 == gameover_time)
-								md->control_flags |= CF_GRIP;
-							break;
 						case SDLK_ESCAPE:
 							quit = 1;
 							break;
@@ -159,9 +155,6 @@ int main(int argc, char *argv[])
 							break;
 						case SDLK_LCTRL:
 							md->control_flags &= ~CF_SHOOT;
-							break;
-						case SDLK_SPACE:
-							md->control_flags &= ~CF_GRIP;
 							break;
 					}
 					break;
@@ -228,6 +221,8 @@ void world_init(void)
 	cpCollisionHandler *ch = NULL;
 	ch = cpSpaceAddCollisionHandler(world_space, TEAM_PLAYER, TEAM_ENEMY);
 	ch->postSolveFunc = cbOnPlayerEnemyTouch;
+	ch = cpSpaceAddCollisionHandler(world_space, TEAM_NEUTRAL, TEAM_SCRAP);
+	ch->postSolveFunc = cbOnBulletScrapTouch;
 }
 
 void world_free(void)
@@ -243,8 +238,21 @@ cpBody* world_spawn_body(cpFloat x, cpFloat y, enum MetaType mt, enum Team team)
 	cpFloat mass = 1;
 	if (mt == MT_TANK)
 	{
-		radius = team == TEAM_PLAYER ? 10 : 7;
-		mass = team == TEAM_PLAYER ? 100 : 50;
+		switch (team)
+		{
+			case TEAM_PLAYER:
+				radius = 10;
+				mass = 100;
+				break;
+			case TEAM_ENEMY:
+				radius = 7;
+				mass = 50;
+				break;
+			case TEAM_ALLY:
+				radius = 3;
+				mass = 50;
+				break;
+		}
 	}
 	else if (mt == MT_BULLET)
 	{
@@ -263,7 +271,17 @@ cpBody* world_spawn_body(cpFloat x, cpFloat y, enum MetaType mt, enum Team team)
 	metadata->team = team;
 	metadata->control_flags = 0;
 	metadata->shoot_timer = 0;
-	metadata->scrap_timer = 30000;
+	metadata->scrap_timer = 0;
+
+	switch (team)
+	{
+		case TEAM_ENEMY:
+			metadata->scrap_timer = 30000;
+			break;
+		case TEAM_ALLY:
+			metadata->scrap_timer = 120000;
+			break;
+	}
 
 	cpShape *shape = cpSpaceAddShape(world_space, cpCircleShapeNew(body, radius, cpvzero));
 	cpShapeSetFriction(shape, 0.7);
@@ -296,6 +314,20 @@ void world_kill_body(cpBody *body)
 void cbKillBody(cpSpace *space, void *obj, void *data)
 {
 	world_kill_body((cpBody *)obj);
+}
+
+void cbSpawnAlly(cpSpace *space, void *obj, void *data)
+{
+	cpVect pos = cpBodyGetPosition((cpBody *)obj);
+	world_kill_body((cpBody *)obj);	// remove scrap
+
+	cpVect impulse = {100, 0};
+	for (int i = 0; i < 4; ++i)
+	{
+		cpBody *a = world_spawn_body(pos.x, pos.y, MT_TANK, TEAM_ALLY);
+		cpBodyApplyImpulseAtLocalPoint(a, impulse, cpvzero);
+		impulse = cpvperp(impulse);
+	}
 }
 
 void world_process(int ms)
@@ -366,17 +398,22 @@ void cbSumGradients(cpShape *shape, cpVect point, cpFloat distance, cpVect gradi
 
 void cbBodyDraw(cpBody *body, void *data)
 {
-	cpBodyEachShape(body, cbShapeDraw, data);
+	cpVect pos = cpBodyGetPosition(body);
+	cpVect cc = *(cpVect *)data;
+	cc = cpvsub(pos, cc);
+	cpBodyEachShape(body, cbShapeDraw, &cc);
 
 	cpFloat mass = cpBodyGetMass(body);
 	cpFloat moment = cpBodyGetMoment(body);
 	struct Metadata *md = cpBodyGetUserData(body);
 
+	if (!md)
+		return;
+
 	// apply AI
-	if (md && md->type == MT_TANK && md->team == TEAM_ENEMY)
+	if (md->type == MT_TANK && md->team == TEAM_ENEMY)
 	{
 		cpVect target = cpBodyGetPosition(player);
-		cpVect pos = cpBodyGetPosition(body);
 		cpFloat angle = cpBodyGetAngle(body) + M_PI_2;
 		target = cpvsub(target, pos);
 
@@ -398,12 +435,12 @@ void cbBodyDraw(cpBody *body, void *data)
 			md->control_flags |= CF_TURN_LEFT;
 	}
 
-	if (md && md->type == MT_TANK && md->team == TEAM_ALLY)
+	if (md->type == MT_TANK && md->team == TEAM_ALLY)
 	{
-		cpVect pos = cpBodyGetPosition(body);
-		cpShape *target_shape = cpSpacePointQueryNearest(world_space, pos, 1000.0f,
+		cpShape *target_shape = cpSpacePointQueryNearest(world_space, pos, 50.0f,
 			cpShapeFilterNew(CP_NO_GROUP, TEAM_ALLY, TEAM_ENEMY), NULL);
 
+		md->control_flags = 0;
 		if (target_shape)
 		{
 			// get in the way of an enemy
@@ -420,6 +457,7 @@ void cbBodyDraw(cpBody *body, void *data)
 			else
 				md->control_flags |= CF_TURN_LEFT;
 		}
+		/*
 		else
 		{
 			// follow the player
@@ -430,22 +468,27 @@ void cbBodyDraw(cpBody *body, void *data)
 			target_angle = atan2(sin(target_angle), cos(target_angle));
 
 			md->control_flags = 0;
-			if (cpvlengthsq(target) > 4900.0f)
+			if (fabsf(target_angle) < M_PI_2 && cpvlengthsq(target) > 4900.0f)
 				md->control_flags = CF_FORWARD;
 			if (target_angle > 0)
 				md->control_flags |= CF_TURN_RIGHT;
 			else
 				md->control_flags |= CF_TURN_LEFT;
 		}
+		*/
 	}
 
 	// apply controls
-	if (md && md->type == MT_TANK)
+	if (md->type == MT_TANK)
 	{
 		cpFloat speed_unit = 100.0f;
-		if (md->team == TEAM_ENEMY || md->team == TEAM_ALLY)
+		if (md->team == TEAM_ENEMY)
 		{
 			speed_unit = 150.0f;
+		}
+		else if (md->team == TEAM_ALLY)
+		{
+			speed_unit = 200.0f;
 		}
 
 		if (md->control_flags & CF_FORWARD)
@@ -478,7 +521,7 @@ void cbBodyDraw(cpBody *body, void *data)
 	}
 
 	// apply physics
-	if (md && (md->type == MT_TANK || md->type == MT_SCRAP))
+	if (md->type == MT_TANK || md->type == MT_SCRAP)
 	{
 		cpVect kinetic = cpBodyGetVelocity(body);
 		kinetic = cpvmult(kinetic, -5.0f * mass);
@@ -490,7 +533,7 @@ void cbBodyDraw(cpBody *body, void *data)
 	}
 
 	// destroy idle bullets
-	if (md && md->type == MT_BULLET)
+	if (md->type == MT_BULLET)
 	{
 		cpFloat kenergy = cpBodyKineticEnergy(body);
 		if (kenergy < 600000.0f)
@@ -498,24 +541,36 @@ void cbBodyDraw(cpBody *body, void *data)
 	}
 
 	// scrap enemies
-	if (md && md->type == MT_TANK && md->team == TEAM_ENEMY)
+	if (md->scrap_timer > 0)
 	{
 		md->scrap_timer -= TIME_STEP;
-		if (md->scrap_timer < 0)
+		if (md->scrap_timer <= 0)
 		{
-			md->type = MT_SCRAP;
-			cpBodyEachShape(body, cbScrap, NULL);
+			if (md->team == TEAM_ENEMY)
+			{
+				md->type = MT_SCRAP;
+				cpBodyEachShape(body, cbScrap, NULL);
+			}
+			else if (md->team == TEAM_ALLY)
+			{
+				cpSpaceAddPostStepCallback(world_space, cbKillBody, body, NULL);
+			}
 		}
 	}
 }
 
 void cbShapeDraw(cpBody *body, cpShape *shape, void *data)
 {
-	cpVect camera_center = *(cpVect *)data;
+	cpVect pos = *(cpVect *)data;
 
-	cpVect pos = cpvsub(cpBodyGetPosition(body), camera_center);
+	Sint16 r = cpCircleShapeGetRadius(shape);
+	int x = roundf(pos.x);
+	int y = roundf(pos.y);
+
+	if (x + r < 0 || y + r < 0 || x - r >= SCREEN_WIDTH || y - r >= SCREEN_HEIGHT)
+		return;
+
 	struct Metadata *md = cpBodyGetUserData(body);
-
 	Uint32 color = 0x555555ff;
 	if (md->type == MT_TANK)
 	{
@@ -526,13 +581,11 @@ void cbShapeDraw(cpBody *body, cpShape *shape, void *data)
 		else if (md->team == TEAM_ALLY)
 			color = 0x55cc55ff;
 	}
-	Sint16 r = cpCircleShapeGetRadius(shape);
-	int x = roundf(pos.x);
-	int y = roundf(pos.y);
+
 	filledCircleColor(screen, x, y, r, color);
 	circleColor(screen, x, y, r, 0x000000ff);
 
-	if (md->type == MT_TANK)
+	if (md->type == MT_TANK && md->team != TEAM_ALLY)
 	{
 		cpVect lend = cpvadd(cpvmult(cpvperp(cpBodyGetRotation(body)), 1.5f * r), pos);
 		lineColor(screen, x, y, lend.x, lend.y, 0x000000ff);
@@ -573,5 +626,21 @@ void cbOnPlayerEnemyTouch(cpArbiter *arb, cpSpace *space, cpDataPointer data)
 		gameover_time = game_timer;
 		struct Metadata *md = cpBodyGetUserData(player);
 		md->control_flags = 0;
+	}
+}
+
+void cbOnBulletScrapTouch(cpArbiter *arb, cpSpace *space, cpDataPointer data)
+{
+	static int counter = 0;
+	cpBody *bullet;
+	cpBody *scrap;
+
+	cpArbiterGetBodies(arb, &bullet, &scrap);
+	cpSpaceAddPostStepCallback(world_space, cbKillBody, bullet, NULL);
+
+	counter = (counter + 1) & 7;
+	if (!counter)
+	{
+		cpSpaceAddPostStepCallback(world_space, cbSpawnAlly, scrap, NULL);
 	}
 }
