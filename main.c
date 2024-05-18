@@ -5,8 +5,8 @@
 
 #include <chipmunk.h>
 
-#define SCREEN_WIDTH	(800)
-#define SCREEN_HEIGHT	(600)
+#define SCREEN_WIDTH	(320)
+#define SCREEN_HEIGHT	(240)
 #define TIME_STEP		(15)
 #define SHOOT_RELOAD	(100)
 
@@ -268,10 +268,10 @@ cpBody* world_spawn_body(cpFloat x, cpFloat y, enum MetaType mt, enum Team team)
 	switch (team)
 	{
 		case TEAM_ENEMY:
-			metadata->scrap_timer = 30000;
+			metadata->scrap_timer = 15000;
 			break;
 		case TEAM_ALLY:
-			metadata->scrap_timer = 40000;
+			metadata->scrap_timer = 20000;
 			break;
 	}
 
@@ -331,13 +331,13 @@ void world_process(int ms)
 	// handle enemy waves
 	if (game_started && !gameover_time && game_timer > next_wave_time)
 	{
-		next_wave_time += 40000;
+		next_wave_time += 10000;
 		++wave;
 
 		cpVect pos = cpBodyGetPosition(player);
-		cpVect rot = cpvmult(cpBodyGetRotation(player), 1000.0f);
-		cpVect vangle = cpvforangle(2 * M_PI / wave);
-		for (int i = 0; i < wave; ++i)
+		cpVect rot = cpvmult(cpBodyGetRotation(player), 600.0f);
+		cpVect vangle = cpvforangle(M_PI / 18);
+		for (int i = 0; i < (wave / 3) + 1; ++i)
 		{
 			cpVect final = cpvadd(pos, rot);
 			world_spawn_body(final.x, final.y, MT_TANK, TEAM_ENEMY);
@@ -592,7 +592,7 @@ void cbShapeDraw(cpBody *body, cpShape *shape, void *data)
 			color = 0x55cc55ff;
 	}
 
-	if (md->type == MT_TANK && md->team == TEAM_ENEMY)
+	if (md->team == TEAM_ENEMY || md->team == TEAM_SCRAP)
 	{
 		// draw a marker instead of the actual shape if out of the screen
 		// y == ax + b
@@ -668,7 +668,8 @@ void cbShapeFree(cpBody *body, cpShape *shape, void *data)
 void cbScrap(cpBody *body, cpShape *shape, void *data)
 {
 	struct Metadata *md = cpBodyGetUserData(body);
-	md->team = TEAM_NEUTRAL;
+	md->type = MT_SCRAP;
+	md->team = TEAM_SCRAP;
 	cpShapeSetCollisionType(shape, TEAM_SCRAP);
 	cpShapeSetFilter(shape, cpShapeFilterNew(CP_NO_GROUP, TEAM_SCRAP, CP_ALL_CATEGORIES));
 }
@@ -692,7 +693,7 @@ void cbOnBulletScrapTouch(cpArbiter *arb, cpSpace *space, cpDataPointer data)
 	cpArbiterGetBodies(arb, &bullet, &scrap);
 	cpSpaceAddPostStepCallback(world_space, cbKillBody, bullet, NULL);
 
-	counter = (counter + 1) & 7;
+	counter = (counter + 1) & 3;
 	if (!counter)
 	{
 		cpSpaceAddPostStepCallback(world_space, cbSpawnAlly, scrap, NULL);
