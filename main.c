@@ -50,11 +50,12 @@ SDL_Surface *screen = NULL;
 
 cpSpace *world_space = NULL;
 cpBody *player = NULL;
-unsigned int next_wave_time = 3000;
+unsigned int next_wave_time = 0;
 int wave = 0;
 
 unsigned int game_timer = 0;
 unsigned int gameover_time = 0;
+int game_started = 0;
 
 void world_init(void);
 void world_free(void);
@@ -126,6 +127,11 @@ int main(int argc, char *argv[])
 								md->shoot_timer = 0;
 							}
 							break;
+						case SDLK_RETURN:
+							if (!game_started)
+								game_timer = 0;
+							game_started = 1;
+							break;
 						case SDLK_ESCAPE:
 							quit = 1;
 							break;
@@ -163,33 +169,26 @@ int main(int argc, char *argv[])
 			world_draw(&pos);
 
 			char buff[64];
-
-			if (gameover_time)
+			if (game_started)
 			{
-				if (gameover_time >= 60000)
+				if (gameover_time)
 				{
-					sprintf(buff, "You lost after %dm %ds", gameover_time / 60000, (gameover_time % 60000) / 1000);
+					sprintf(buff, "%02d:%02d", gameover_time / 60000, (gameover_time % 60000) / 1000);
+					stringColor(screen, SCREEN_WIDTH / 2 - 5 * 4, SCREEN_HEIGHT - 16, buff, 0x000000ff);
+					stringColor(screen, SCREEN_WIDTH / 2 - 9 * 4, SCREEN_HEIGHT - 8, "GAME OVER", 0x000000ff);
 				}
 				else
 				{
-					sprintf(buff, "You lost after %ds", gameover_time / 1000);
+					sprintf(buff, "%02d:%02d", game_timer / 60000, (game_timer % 60000) / 1000);
+					stringColor(screen, SCREEN_WIDTH / 2 - 5 * 4, SCREEN_HEIGHT - 16, buff, 0x000000ff);
 				}
-				stringColor(screen, 0, 0, buff, 0x000000ff);
-
-				sprintf(buff, "GAME OVER");
-				stringColor(screen, 0, 8, buff, 0x000000ff);
 			}
 			else
 			{
-				if (game_timer >= 60000)
+				if (((game_timer / 500) & 1) == 0)
 				{
-					sprintf(buff, "Time: %dm %ds", game_timer / 60000, (game_timer % 60000) / 1000);
+					stringColor(screen, SCREEN_WIDTH / 2 - 11 * 4, SCREEN_HEIGHT - 16, "PRESS START", 0x000000ff);
 				}
-				else
-				{
-					sprintf(buff, "Time: %ds", game_timer / 1000);
-				}
-				stringColor(screen, 0, 0, buff, 0x000000ff);
 			}
 
 			SDL_Flip(screen);
@@ -330,7 +329,7 @@ void world_process(int ms)
 	cpSpaceStep(world_space, ms / 1000.0);
 
 	// handle enemy waves
-	if (!gameover_time && game_timer > next_wave_time)
+	if (game_started && !gameover_time && game_timer > next_wave_time)
 	{
 		next_wave_time += 40000;
 		++wave;
