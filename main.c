@@ -50,6 +50,8 @@ SDL_Surface *screen = NULL;
 
 cpSpace *world_space = NULL;
 cpBody *player = NULL;
+unsigned int next_wave_time = 3000;
+int wave = 0;
 
 unsigned int game_timer = 0;
 unsigned int gameover_time = 0;
@@ -59,6 +61,7 @@ void world_free(void);
 cpBody* world_spawn_body(cpFloat x, cpFloat y, enum MetaType mt, enum Team team);
 void world_kill_body(cpBody *body);
 void cbKillBody(cpSpace *space, void *obj, void *data);
+void cbSpawnAlly(cpSpace *space, void *obj, void *data);
 void world_process(int ms);
 void world_draw(cpVect *cc);
 
@@ -71,6 +74,7 @@ void cbShapeDraw(cpBody *body, cpShape *shape, void *data);
 void cbShapeFree(cpBody *body, cpShape *shape, void *data);
 void cbScrap(cpBody *body, cpShape *shape, void *data);
 
+void cbSumGradients(cpShape *shape, cpVect point, cpFloat distance, cpVect gradient, void *data);
 void cbOnPlayerEnemyTouch(cpArbiter *arb, cpSpace *space, cpDataPointer data);
 void cbOnBulletScrapTouch(cpArbiter *arb, cpSpace *space, cpDataPointer data);
 
@@ -85,17 +89,6 @@ int main(int argc, char *argv[])
 	world_init();
 	player = world_spawn_body(0, 0, MT_TANK, TEAM_PLAYER);
 	struct Metadata *md = cpBodyGetUserData(player);
-
-	//world_spawn_body(100, 100, MT_TANK, TEAM_ALLY);
-	//world_spawn_body(100, -100, MT_TANK, TEAM_ALLY);
-	//world_spawn_body(-100, -100, MT_TANK, TEAM_ALLY);
-	//world_spawn_body(-100, 100, MT_TANK, TEAM_ALLY);
-	for (int i = 0; i < 1; ++i)
-	{
-		world_spawn_body(-100 + i * 20, 200, MT_TANK, TEAM_ENEMY);
-		//world_spawn_body(-100 + i * 20, 100, MT_TANK, TEAM_ALLY);
-		//world_spawn_body(100 + i * 20, -100, MT_TANK, TEAM_ALLY);
-	}
 
 	// loop
 	int quit = 0;
@@ -250,7 +243,7 @@ cpBody* world_spawn_body(cpFloat x, cpFloat y, enum MetaType mt, enum Team team)
 				break;
 			case TEAM_ALLY:
 				radius = 3;
-				mass = 50;
+				mass = 20;
 				break;
 		}
 	}
@@ -279,7 +272,7 @@ cpBody* world_spawn_body(cpFloat x, cpFloat y, enum MetaType mt, enum Team team)
 			metadata->scrap_timer = 30000;
 			break;
 		case TEAM_ALLY:
-			metadata->scrap_timer = 120000;
+			metadata->scrap_timer = 40000;
 			break;
 	}
 
@@ -321,18 +314,37 @@ void cbSpawnAlly(cpSpace *space, void *obj, void *data)
 	cpVect pos = cpBodyGetPosition((cpBody *)obj);
 	world_kill_body((cpBody *)obj);	// remove scrap
 
-	cpVect impulse = {100, 0};
-	for (int i = 0; i < 4; ++i)
+	cpVect impulse = {50.0f * 50.0f, 0};
+	const int num = 3;
+	cpVect rot = cpvforangle(2 * M_PI / num);
+	for (int i = 0; i < num; ++i)
 	{
 		cpBody *a = world_spawn_body(pos.x, pos.y, MT_TANK, TEAM_ALLY);
 		cpBodyApplyImpulseAtLocalPoint(a, impulse, cpvzero);
-		impulse = cpvperp(impulse);
+		impulse = cpvrotate(impulse, rot);
 	}
 }
 
 void world_process(int ms)
 {
 	cpSpaceStep(world_space, ms / 1000.0);
+
+	// handle enemy waves
+	if (!gameover_time && game_timer > next_wave_time)
+	{
+		next_wave_time += 40000;
+		++wave;
+
+		cpVect pos = cpBodyGetPosition(player);
+		cpVect rot = cpvmult(cpBodyGetRotation(player), 1000.0f);
+		cpVect vangle = cpvforangle(2 * M_PI / wave);
+		for (int i = 0; i < wave; ++i)
+		{
+			cpVect final = cpvadd(pos, rot);
+			world_spawn_body(final.x, final.y, MT_TANK, TEAM_ENEMY);
+			rot = cpvrotate(rot, vangle);
+		}
+	}
 }
 
 void world_draw(cpVect *cc)
@@ -437,7 +449,7 @@ void cbBodyDraw(cpBody *body, void *data)
 
 	if (md->type == MT_TANK && md->team == TEAM_ALLY)
 	{
-		cpShape *target_shape = cpSpacePointQueryNearest(world_space, pos, 50.0f,
+		cpShape *target_shape = cpSpacePointQueryNearest(world_space, pos, 200.0f,
 			cpShapeFilterNew(CP_NO_GROUP, TEAM_ALLY, TEAM_ENEMY), NULL);
 
 		md->control_flags = 0;
@@ -482,6 +494,7 @@ void cbBodyDraw(cpBody *body, void *data)
 	if (md->type == MT_TANK)
 	{
 		cpFloat speed_unit = 100.0f;
+		cpFloat angle_unit = 20.0f;
 		if (md->team == TEAM_ENEMY)
 		{
 			speed_unit = 150.0f;
@@ -489,6 +502,7 @@ void cbBodyDraw(cpBody *body, void *data)
 		else if (md->team == TEAM_ALLY)
 		{
 			speed_unit = 200.0f;
+			angle_unit = 60.0f;
 		}
 
 		if (md->control_flags & CF_FORWARD)
@@ -502,12 +516,12 @@ void cbBodyDraw(cpBody *body, void *data)
 		if (md->control_flags & CF_TURN_LEFT)
 		{
 			cpFloat torque = cpBodyGetTorque(body);
-			cpBodySetTorque(body, torque - 20.0f * moment);
+			cpBodySetTorque(body, torque - angle_unit * moment);
 		}
 		if (md->control_flags & CF_TURN_RIGHT)
 		{
 			cpFloat torque = cpBodyGetTorque(body);
-			cpBodySetTorque(body, torque + 20.0f * moment);
+			cpBodySetTorque(body, torque + angle_unit * moment);
 		}
 		if (md->control_flags & CF_SHOOT)
 		{
@@ -562,15 +576,12 @@ void cbBodyDraw(cpBody *body, void *data)
 void cbShapeDraw(cpBody *body, cpShape *shape, void *data)
 {
 	cpVect pos = *(cpVect *)data;
+	struct Metadata *md = cpBodyGetUserData(body);
 
-	Sint16 r = cpCircleShapeGetRadius(shape);
 	int x = roundf(pos.x);
 	int y = roundf(pos.y);
+	Sint16 r = cpCircleShapeGetRadius(shape);
 
-	if (x + r < 0 || y + r < 0 || x - r >= SCREEN_WIDTH || y - r >= SCREEN_HEIGHT)
-		return;
-
-	struct Metadata *md = cpBodyGetUserData(body);
 	Uint32 color = 0x555555ff;
 	if (md->type == MT_TANK)
 	{
@@ -580,6 +591,48 @@ void cbShapeDraw(cpBody *body, cpShape *shape, void *data)
 			color = 0xcc5555ff;
 		else if (md->team == TEAM_ALLY)
 			color = 0x55cc55ff;
+	}
+
+	if (md->type == MT_TANK && md->team == TEAM_ENEMY)
+	{
+		// draw a marker instead of the actual shape if out of the screen
+		// y == ax + b
+		cpFloat a = (pos.y - SCREEN_WIDTH / 2) / (pos.x - SCREEN_HEIGHT / 2);
+		cpFloat b = pos.y - a * pos.x;
+		int marker = 0;
+
+		if (y < 0)
+		{
+			x = -b / a;
+			y = 0;
+			marker = 1;
+		}
+		else if (y >= SCREEN_HEIGHT)
+		{
+			y = SCREEN_HEIGHT - 1;
+			x = (y - b) / a;
+			marker = 1;
+		}
+
+		if (x < 0)
+		{
+			x = 0;
+			y = b;
+			marker = 1;
+		}
+		else if (x >= SCREEN_WIDTH)
+		{
+			x = SCREEN_WIDTH - 1;
+			y = a * x + b;
+			marker = 1;
+		}
+
+		if (marker)
+		{
+			filledCircleColor(screen, x, y, 5, color);
+			circleColor(screen, x, y, 5, 0x000000ff);
+			return;
+		}
 	}
 
 	filledCircleColor(screen, x, y, r, color);
@@ -615,6 +668,8 @@ void cbShapeFree(cpBody *body, cpShape *shape, void *data)
 
 void cbScrap(cpBody *body, cpShape *shape, void *data)
 {
+	struct Metadata *md = cpBodyGetUserData(body);
+	md->team = TEAM_NEUTRAL;
 	cpShapeSetCollisionType(shape, TEAM_SCRAP);
 	cpShapeSetFilter(shape, cpShapeFilterNew(CP_NO_GROUP, TEAM_SCRAP, CP_ALL_CATEGORIES));
 }
