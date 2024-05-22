@@ -130,15 +130,19 @@ int main(int argc, char *argv[])
 							}
 							break;
 						case SDLK_RETURN:
+							if (gameover_time)
+							{
+								cpSpaceEachBody(world_space, remove_non_player_bodies, NULL);
+								cpBodySetPosition(player, cpvzero);
+								game_timer = 0;
+								gameover_time = 0;
+								next_wave_time = 0;
+								wave = 0;
+							}
+
 							if (!game_started)
 								game_timer = 0;
 							game_started = 1;
-
-							// Remove all bodies except the player's body
-							cpSpaceEachBody(world_space, remove_non_player_bodies, NULL);
-
-							// Move the player's body to position (0, 0)
-							cpBodySetPosition(player, cpvzero);
 							break;
 						case SDLK_ESCAPE:
 							quit = 1;
