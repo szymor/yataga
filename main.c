@@ -131,6 +131,16 @@ int main(int argc, char *argv[])
 							if (!game_started)
 								game_timer = 0;
 							game_started = 1;
+
+							// Remove all bodies except the player's body
+							cpSpaceEachBody(world_space, [](cpBody *body, void *data) {
+								if (body != player) {
+									cbBodyFree(body, NULL);
+								}
+							}, NULL);
+
+							// Move the player's body to position (0, 0)
+							cpBodySetPosition(player, cpv(0, 0));
 							break;
 						case SDLK_ESCAPE:
 							quit = 1;
