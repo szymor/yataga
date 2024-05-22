@@ -583,7 +583,7 @@ void cbBodyDraw(cpBody *body, void *data)
 void remove_non_player_bodies(cpBody *body, void *data)
 {
 	if (body != player) {
-		cbBodyFree(body, NULL);
+		cpSpaceAddPostStepCallback(world_space, cbKillBody, body, NULL);
 	}
 }
 
