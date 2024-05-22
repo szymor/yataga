@@ -79,6 +79,8 @@ void cbSumGradients(cpShape *shape, cpVect point, cpFloat distance, cpVect gradi
 void cbOnPlayerEnemyTouch(cpArbiter *arb, cpSpace *space, cpDataPointer data);
 void cbOnBulletScrapTouch(cpArbiter *arb, cpSpace *space, cpDataPointer data);
 
+void remove_non_player_bodies(cpBody *body, void *data);
+
 int main(int argc, char *argv[])
 {
 	// init
@@ -136,7 +138,7 @@ int main(int argc, char *argv[])
 							cpSpaceEachBody(world_space, remove_non_player_bodies, NULL);
 
 							// Move the player's body to position (0, 0)
-							cpBodySetPosition(player, cpv(0, 0));
+							cpBodySetPosition(player, cpvzero);
 							break;
 						case SDLK_ESCAPE:
 							quit = 1;
@@ -575,13 +577,6 @@ void cbBodyDraw(cpBody *body, void *data)
 				cpSpaceAddPostStepCallback(world_space, cbKillBody, body, NULL);
 			}
 		}
-	}
-}
-
-void remove_non_player_bodies(cpBody *body, void *data)
-{
-	if (body != player) {
-		cbBodyFree(body, NULL);
 	}
 }
 
