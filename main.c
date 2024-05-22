@@ -133,11 +133,7 @@ int main(int argc, char *argv[])
 							game_started = 1;
 
 							// Remove all bodies except the player's body
-							cpSpaceEachBody(world_space, [](cpBody *body, void *data) {
-								if (body != player) {
-									cbBodyFree(body, NULL);
-								}
-							}, NULL);
+							cpSpaceEachBody(world_space, remove_non_player_bodies, NULL);
 
 							// Move the player's body to position (0, 0)
 							cpBodySetPosition(player, cpv(0, 0));
@@ -579,6 +575,13 @@ void cbBodyDraw(cpBody *body, void *data)
 				cpSpaceAddPostStepCallback(world_space, cbKillBody, body, NULL);
 			}
 		}
+	}
+}
+
+void remove_non_player_bodies(cpBody *body, void *data)
+{
+	if (body != player) {
+		cbBodyFree(body, NULL);
 	}
 }
 
