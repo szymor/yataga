@@ -1,0 +1,19 @@
+.PHONY: all clean
+
+CC = arm-linux-gcc
+SYSROOT = $(shell $(CC) --print-sysroot)
+PKGCONFIG = $(SYSROOT)/../../bin/pkg-config
+
+TARGET=yataga-miyoo
+SRC=$(wildcard *.c)
+INC=$(wildcard *.h)
+
+CFLAGS=-Ofast -march=armv5te -mtune=arm926ej-s
+
+all: $(TARGET)
+
+clean:
+	-rm $(TARGET)
+
+$(TARGET): $(SRC) $(INC)
+	$(CC) $(CFLAGS) -o $@ $(SRC) `$(PKGCONFIG) --cflags --libs sdl SDL_gfx` -Ichipmunk2d/include/chipmunk -Lchipmunk2d/build/src -l:libchipmunk.a -lm
